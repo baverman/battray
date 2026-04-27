@@ -30,10 +30,9 @@ pub const Battery = struct {
         const file = try std.fs.openFileAbsolute(self.capacity_path, .{});
         defer file.close();
 
-        const raw = try file.readToEndAlloc(self.allocator, 32);
-        defer self.allocator.free(raw);
-
-        const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+        var buf: [16]u8 = undefined;
+        const n = try file.readAll(&buf);
+        const trimmed = std.mem.trim(u8, buf[0..n], " \t\r\n");
         return try std.fmt.parseInt(u8, trimmed, 10);
     }
 };
