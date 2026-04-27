@@ -1,0 +1,5 @@
+/battery_tray.py
+.codex
+__pycache__
+/zig-out
+/.zig-cache
