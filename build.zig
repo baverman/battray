@@ -8,7 +8,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        // .link_libc = true,
     });
 
     const exe = b.addExecutable(.{
@@ -18,8 +17,6 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkSystemLibrary("X11");
-    exe.linkSystemLibrary("Xrender");
-    exe.linkSystemLibrary("Xft");
     exe.linkLibC();
 
     b.installArtifact(exe);

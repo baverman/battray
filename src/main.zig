@@ -24,9 +24,7 @@ pub fn main() !void {
     var tray = try Tray.init(icon_size, icon_size);
     defer tray.deinit();
 
-    var text_buf: [4]u8 = undefined;
-    const initial_text = try std.fmt.bufPrint(&text_buf, "{d}", .{initial_capacity});
-    try tray.setText(initial_text);
+    tray.setLevel(initial_capacity);
 
     var last_capacity = initial_capacity;
     var next_refresh = std.time.nanoTimestamp();
@@ -44,8 +42,7 @@ pub fn main() !void {
             };
 
             if (capacity != last_capacity) {
-                const text = try std.fmt.bufPrint(&text_buf, "{d}", .{capacity});
-                try tray.setText(text);
+                tray.setLevel(capacity);
                 last_capacity = capacity;
             }
 

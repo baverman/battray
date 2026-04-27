@@ -17,8 +17,7 @@ pub const Tray = struct {
     width: u16,
     height: u16,
     running: bool,
-    text: [4]u8,
-    text_len: usize,
+    percent: u8,
 
     pub fn init(width: u16, height: u16) !Tray {
         const display = c.XOpenDisplay(null) orelse return error.XOpenDisplayFailed;
@@ -87,8 +86,7 @@ pub const Tray = struct {
             .width = width,
             .height = height,
             .running = true,
-            .text = [_]u8{ 0, 0, 0, 0 },
-            .text_len = 0,
+            .percent = 0,
         };
 
         try tray.dock();
@@ -101,11 +99,8 @@ pub const Tray = struct {
         _ = c.XCloseDisplay(self.display);
     }
 
-    pub fn setText(self: *Tray, text: []const u8) !void {
-        if (text.len > self.text.len) return error.TextTooLong;
-        @memset(&self.text, 0);
-        @memcpy(self.text[0..text.len], text);
-        self.text_len = text.len;
+    pub fn setLevel(self: *Tray, percent: u8) void {
+        self.percent = @min(percent, 100);
         self.redraw();
     }
 
@@ -164,7 +159,7 @@ pub const Tray = struct {
     }
 
     fn redraw(self: *Tray) void {
-        self.renderer.drawText(self.window, self.text[0..self.text_len]);
+        self.renderer.drawBatteryLevel(self.window, self.percent);
     }
 };
 
