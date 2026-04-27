@@ -2,8 +2,7 @@ const std = @import("std");
 const Battery = @import("battery.zig").Battery;
 const Tray = @import("tray_x11.zig").Tray;
 
-const refresh_interval_ns = 30 * std.time.ns_per_s;
-const sleep_interval_ns = 100 * std.time.ns_per_ms;
+const refresh_interval_ms = 30 * std.time.ms_per_s;
 const icon_size: u16 = 24;
 
 pub fn main() !void {
@@ -27,17 +26,23 @@ pub fn main() !void {
     tray.setLevel(initial_capacity);
 
     var last_capacity = initial_capacity;
-    var next_refresh = std.time.nanoTimestamp();
+    var next_refresh_ms = std.time.milliTimestamp() + refresh_interval_ms;
+    var poll_fds = [_]std.posix.pollfd{
+        .{
+            .fd = tray.connectionFd(),
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        },
+    };
 
     while (tray.running) {
         tray.processPending();
 
-        const now = std.time.nanoTimestamp();
-        if (now >= next_refresh) {
+        const now_ms = std.time.milliTimestamp();
+        if (now_ms >= next_refresh_ms) {
             const capacity = battery.readCapacity() catch |err| {
                 std.log.err("failed to read battery capacity: {}", .{err});
-                next_refresh = now + refresh_interval_ns;
-                std.Thread.sleep(sleep_interval_ns);
+                next_refresh_ms = now_ms + refresh_interval_ms;
                 continue;
             };
 
@@ -46,9 +51,11 @@ pub fn main() !void {
                 last_capacity = capacity;
             }
 
-            next_refresh = now + refresh_interval_ns;
+            next_refresh_ms = now_ms + refresh_interval_ms;
         }
 
-        std.Thread.sleep(sleep_interval_ns);
+        const remaining_ms = @max(next_refresh_ms - std.time.milliTimestamp(), 0);
+        const timeout_ms: i32 = @intCast(remaining_ms);
+        _ = try std.posix.poll(&poll_fds, timeout_ms);
     }
 }

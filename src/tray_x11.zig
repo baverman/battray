@@ -112,6 +112,10 @@ pub const Tray = struct {
         }
     }
 
+    pub fn connectionFd(self: *const Tray) std.posix.fd_t {
+        return c.XConnectionNumber(self.display);
+    }
+
     fn dock(self: *Tray) !void {
         var event: c.XEvent = undefined;
         @memset(std.mem.asBytes(&event), 0);
