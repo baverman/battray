@@ -25,12 +25,12 @@ pub const Tray = struct {
     tray_owner: c.Window,
     atoms: Atoms,
     painter: Painter,
-    width: u16,
-    height: u16,
+    width: i32,
+    height: i32,
     running: bool,
     percent: u8,
 
-    pub fn init(width: u16, height: u16) !Tray {
+    pub fn init(width: i32, height: i32) !Tray {
         const display = c.XOpenDisplay(null) orelse return error.XOpenDisplayFailed;
         errdefer _ = c.XCloseDisplay(display);
 
@@ -53,8 +53,8 @@ pub const Tray = struct {
             root,
             0,
             0,
-            width,
-            height,
+            @intCast(width),
+            @intCast(height),
             0,
             depth,
             c.InputOutput,
@@ -80,7 +80,7 @@ pub const Tray = struct {
             2,
         );
 
-        const painter = try Painter.init(display, screen, window, width, height);
+        const painter = try Painter.init(display, screen, window);
         errdefer {
             var p = painter;
             p.deinit();
@@ -155,12 +155,11 @@ pub const Tray = struct {
                 if (event.xexpose.count == 0) self.redraw();
             },
             c.ConfigureNotify => {
-                const new_width: u16 = @intCast(@max(event.xconfigure.width, 1));
-                const new_height: u16 = @intCast(@max(event.xconfigure.height, 1));
+                const new_width = @max(event.xconfigure.width, 1);
+                const new_height = @max(event.xconfigure.height, 1);
                 if (new_width != self.width or new_height != self.height) {
                     self.width = new_width;
                     self.height = new_height;
-                    self.painter.resize(new_width, new_height);
                     self.redraw();
                 }
             },
@@ -175,7 +174,7 @@ pub const Tray = struct {
 
     fn redraw(self: *Tray) void {
         _ = c.XClearWindow(self.display, self.window);
-        drawBattery(&self.painter, self.percent);
+        drawBattery(&self.painter, self.percent, self.width, self.height);
         _ = c.XFlush(self.display);
     }
 };
@@ -210,15 +209,13 @@ pub const Painter = struct {
     colormap: c.Colormap,
     window: c.Window,
     gc: c.GC,
-    width: i32,
-    height: i32,
 
     color_border: c_ulong,
     color_good: c_ulong,
     color_warn: c_ulong,
     color_crit: c_ulong,
 
-    pub fn init(display: *c.Display, screen: c_int, window: c.Window, width: i32, height: i32) !Painter {
+    pub fn init(display: *c.Display, screen: c_int, window: c.Window) !Painter {
         const colormap = c.XDefaultColormap(display, screen);
         const gc = c.XCreateGC(display, window, 0, null) orelse return error.XCreateGCFailed;
         errdefer _ = c.XFreeGC(display, gc);
@@ -228,8 +225,6 @@ pub const Painter = struct {
             .colormap = colormap,
             .window = window,
             .gc = gc,
-            .width = width,
-            .height = height,
             .color_border = try allocColor(display, colormap, config.colors.border),
             .color_good = try allocColor(display, colormap, config.colors.good),
             .color_warn = try allocColor(display, colormap, config.colors.warn),
@@ -252,16 +247,11 @@ pub const Painter = struct {
 
     pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
         _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
-        _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
+        _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w - 1), @intCast(h - 1));
     }
 
     pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
         _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
         _ = c.XFillRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
-    }
-
-    pub fn resize(self: *Painter, width: i32, height: i32) void {
-        self.width = width;
-        self.height = height;
     }
 };
