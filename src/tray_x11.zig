@@ -1,10 +1,21 @@
 const std = @import("std");
-const Renderer = @import("render.zig").Renderer;
+const Color = @import("render.zig").Color;
+const drawBattery = @import("render.zig").drawBattery;
+const config = @import("config.zig").config;
 pub const c = @import("x11.zig").c;
 
 const SYSTEM_TRAY_REQUEST_DOCK: c_long = 0;
 const XEMBED_VERSION: c_ulong = 0;
 const XEMBED_MAPPED: c_ulong = 1;
+
+fn allocColor(display: *c.Display, colormap: c.Colormap, name: [:0]const u8) !c_ulong {
+    var screen_def: c.XColor = undefined;
+    var exact_def: c.XColor = undefined;
+    if (c.XAllocNamedColor(display, colormap, name.ptr, &screen_def, &exact_def) == 0) {
+        return error.XAllocColorFailed;
+    }
+    return screen_def.pixel;
+}
 
 pub const Tray = struct {
     display: *c.Display,
@@ -13,7 +24,7 @@ pub const Tray = struct {
     window: c.Window,
     tray_owner: c.Window,
     atoms: Atoms,
-    renderer: Renderer,
+    painter: Painter,
     width: u16,
     height: u16,
     running: bool,
@@ -69,10 +80,10 @@ pub const Tray = struct {
             2,
         );
 
-        const renderer = try Renderer.init(display, screen, window, width, height);
+        const painter = try Painter.init(display, screen, window, width, height);
         errdefer {
-            var r = renderer;
-            r.deinit();
+            var p = painter;
+            p.deinit();
         }
 
         var tray = Tray{
@@ -82,7 +93,7 @@ pub const Tray = struct {
             .window = window,
             .tray_owner = tray_owner,
             .atoms = atoms,
-            .renderer = renderer,
+            .painter = painter,
             .width = width,
             .height = height,
             .running = true,
@@ -94,7 +105,7 @@ pub const Tray = struct {
     }
 
     pub fn deinit(self: *Tray) void {
-        self.renderer.deinit();
+        self.painter.deinit();
         _ = c.XDestroyWindow(self.display, self.window);
         _ = c.XCloseDisplay(self.display);
     }
@@ -149,7 +160,7 @@ pub const Tray = struct {
                 if (new_width != self.width or new_height != self.height) {
                     self.width = new_width;
                     self.height = new_height;
-                    self.renderer.resize(self.window, new_width, new_height);
+                    self.painter.resize(new_width, new_height);
                     self.redraw();
                 }
             },
@@ -163,7 +174,9 @@ pub const Tray = struct {
     }
 
     fn redraw(self: *Tray) void {
-        self.renderer.drawBatteryLevel(self.window, self.percent);
+        _ = c.XClearWindow(self.display, self.window);
+        drawBattery(&self.painter, self.percent);
+        _ = c.XFlush(self.display);
     }
 };
 
@@ -189,5 +202,66 @@ const Atoms = struct {
             .system_tray_opcode = system_tray_opcode,
             .xembed_info = xembed_info,
         };
+    }
+};
+
+pub const Painter = struct {
+    display: *c.Display,
+    colormap: c.Colormap,
+    window: c.Window,
+    gc: c.GC,
+    width: i32,
+    height: i32,
+
+    color_border: c_ulong,
+    color_good: c_ulong,
+    color_warn: c_ulong,
+    color_crit: c_ulong,
+
+    pub fn init(display: *c.Display, screen: c_int, window: c.Window, width: i32, height: i32) !Painter {
+        const colormap = c.XDefaultColormap(display, screen);
+        const gc = c.XCreateGC(display, window, 0, null) orelse return error.XCreateGCFailed;
+        errdefer _ = c.XFreeGC(display, gc);
+
+        return .{
+            .display = display,
+            .colormap = colormap,
+            .window = window,
+            .gc = gc,
+            .width = width,
+            .height = height,
+            .color_border = try allocColor(display, colormap, config.colors.border),
+            .color_good = try allocColor(display, colormap, config.colors.good),
+            .color_warn = try allocColor(display, colormap, config.colors.warn),
+            .color_crit = try allocColor(display, colormap, config.colors.crit),
+        };
+    }
+
+    pub fn deinit(self: *Painter) void {
+        _ = c.XFreeGC(self.display, self.gc);
+    }
+
+    pub fn getColor(self: *Painter, color: Color) c_ulong {
+        return switch (color) {
+            Color.border => self.color_border,
+            Color.good => self.color_good,
+            Color.warn => self.color_warn,
+            Color.crit => self.color_crit,
+        };
+    }
+
+    pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
+        _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
+        _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
+    }
+
+    pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
+        _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
+        _ = c.XFillRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
+    }
+
+    pub fn resize(self: *Painter, width: i32, height: i32) void {
+        self.width = width;
+        self.height = height;
     }
 };

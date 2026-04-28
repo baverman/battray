@@ -7,6 +7,7 @@ const icon_size: u16 = 24;
 
 pub fn main() !void {
     var gpa_state: std.heap.GeneralPurposeAllocator(.{}) = .init;
+
     defer {
         const leaked = gpa_state.deinit();
         if (leaked == .leak) {
