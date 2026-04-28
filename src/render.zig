@@ -6,13 +6,13 @@ pub const Color = enum {
 };
 
 pub const Battery = struct {
-    height: f32 = 0.55,
-    nub_h: f32 = 0.2,
-    nub_w: f32 = 0.1,
-    nub_gap: f32 = 0.05,
-    fill_gap: f32 = 0.05,
-    zoom: f32 = 0.85,
-    offset: i32 = 0,
+    height: f32,
+    nub_h: f32,
+    nub_w: f32,
+    nub_gap: f32,
+    fill_gap: f32,
+    zoom: f32,
+    offset: i32,
 };
 
 pub const Rect = struct {
@@ -28,16 +28,12 @@ pub const Layout = struct {
     fill: Rect,
 };
 
-pub fn drawBattery(painter: anytype, percent: u8, width: i32, height: i32) void {
-    var l: Layout = undefined;
-    const battery: Battery = .{};
-    calcLayout(&l, &battery, width, height);
-
-    painter.drawRect(l.body.x, l.body.y, l.body.w, l.body.h, Color.border);
-    painter.drawFillRect(l.nub.x, l.nub.y, l.nub.w, l.nub.h, Color.border);
+pub fn drawBattery(painter: anytype, percent: u8, layout: Layout) void {
+    painter.drawRect(layout.body.x, layout.body.y, layout.body.w, layout.body.h, Color.border);
+    painter.drawFillRect(layout.nub.x, layout.nub.y, layout.nub.w, layout.nub.h, Color.border);
 
     const clamped = @min(percent, 100);
-    const fill_w: i32 = @divTrunc(l.fill.w * clamped + 50, 100);
+    const fill_w: i32 = @divTrunc(layout.fill.w * clamped + 50, 100);
 
     const fill_color = if (clamped < 10)
         Color.crit
@@ -47,11 +43,11 @@ pub fn drawBattery(painter: anytype, percent: u8, width: i32, height: i32) void 
         Color.good;
 
     if (fill_w > 0) {
-        painter.drawFillRect(l.fill.x, l.fill.y, fill_w, l.fill.h, fill_color);
+        painter.drawFillRect(layout.fill.x, layout.fill.y, fill_w, layout.fill.h, fill_color);
     }
 }
 
-pub fn calcLayout(out: *Layout, battery: *const Battery, width: i32, height: i32) void {
+pub fn calcLayout(battery: Battery, width: i32, height: i32) Layout {
     const zw = @as(f32, @floatFromInt(width)) * battery.zoom;
     const fullw = @max(1, @as(i32, @intFromFloat(@round(zw))));
     const nw = @max(1, @as(i32, @intFromFloat(@round(zw * battery.nub_w))));
@@ -66,27 +62,29 @@ pub fn calcLayout(out: *Layout, battery: *const Battery, width: i32, height: i32
         nh += 1;
     }
 
-    out.body = .{
-        .x = @divTrunc(width - real_w, 2),
-        .y = @divTrunc(height - bh, 2) + battery.offset,
-        .w = bw,
-        .h = bh,
-    };
+    const bx = @divTrunc(width - real_w, 2);
+    const by = @divTrunc(height - bh, 2) + battery.offset;
 
-    out.fill = .{
-        .x = out.body.x + 1 + fg,
-        .y = out.body.y + 1 + fg,
-        .w = out.body.w - 2 - 2 * fg,
-        .h = out.body.h - 2 - 2 * fg,
-    };
+    return .{
+        .body = .{
+            .x = bx,
+            .y = by,
+            .w = bw,
+            .h = bh,
+        },
 
-    out.nub = .{
-        .x = out.body.x + out.body.w + ng,
-        .y = @divTrunc(height - nh, 2) + battery.offset,
-        .w = nw,
-        .h = nh,
-    };
+        .fill = .{
+            .x = bx + 1 + fg,
+            .y = by + 1 + fg,
+            .w = bw - 2 - 2 * fg,
+            .h = bh - 2 - 2 * fg,
+        },
 
-    // const std = @import("std");
-    // std.debug.print("Result: {any}\n", .{out.*});
+        .nub = .{
+            .x = bx + bw + ng,
+            .y = @divTrunc(height - nh, 2) + battery.offset,
+            .w = nw,
+            .h = nh,
+        },
+    };
 }

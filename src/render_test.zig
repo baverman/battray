@@ -3,6 +3,18 @@ const t = @import("std").testing;
 
 const Color = @import("render.zig").Color;
 const drawBattery = @import("render.zig").drawBattery;
+const Battery = @import("render.zig").Battery;
+const calcLayout = @import("render.zig").calcLayout;
+
+const battery: Battery = .{
+    .height = 0.55,
+    .nub_h = 0.2,
+    .nub_w = 0.1,
+    .nub_gap = 0.05,
+    .fill_gap = 0.05,
+    .zoom = 0.85,
+    .offset = 0,
+};
 
 const Painter = struct {
     buf: [100][100]u8,
@@ -104,7 +116,7 @@ test "Test 99% should still be full" {
     var out = [_]u8{0} ** 1000;
     var p = Painter.init();
 
-    drawBattery(&p, 99, 22, 22);
+    drawBattery(&p, 99, calcLayout(battery, 22, 22));
     const expected =
         \\......................
         \\......................
@@ -136,7 +148,7 @@ test "Test 10x10 render stays coherent" {
     var out = [_]u8{0} ** 1000;
     var p = Painter.init();
 
-    drawBattery(&p, 99, 10, 10);
+    drawBattery(&p, 99, calcLayout(battery, 10, 10));
     const expected =
         \\..........
         \\..........

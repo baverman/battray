@@ -1,6 +1,5 @@
 const std = @import("std");
-const Color = @import("render.zig").Color;
-const drawBattery = @import("render.zig").drawBattery;
+const render = @import("render.zig");
 const config = @import("config.zig").config;
 pub const c = @import("x11.zig").c;
 
@@ -174,7 +173,8 @@ pub const Tray = struct {
 
     fn redraw(self: *Tray) void {
         _ = c.XClearWindow(self.display, self.window);
-        drawBattery(&self.painter, self.percent, self.width, self.height);
+        const layout = render.calcLayout(config.battery, self.width, self.height);
+        render.drawBattery(&self.painter, self.percent, layout);
         _ = c.XFlush(self.display);
     }
 };
@@ -236,21 +236,21 @@ pub const Painter = struct {
         _ = c.XFreeGC(self.display, self.gc);
     }
 
-    pub fn getColor(self: *Painter, color: Color) c_ulong {
+    pub fn getColor(self: *Painter, color: render.Color) c_ulong {
         return switch (color) {
-            Color.border => self.color_border,
-            Color.good => self.color_good,
-            Color.warn => self.color_warn,
-            Color.crit => self.color_crit,
+            render.Color.border => self.color_border,
+            render.Color.good => self.color_good,
+            render.Color.warn => self.color_warn,
+            render.Color.crit => self.color_crit,
         };
     }
 
-    pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
+    pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
         _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
         _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w - 1), @intCast(h - 1));
     }
 
-    pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: Color) void {
+    pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
         _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
         _ = c.XFillRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
     }
