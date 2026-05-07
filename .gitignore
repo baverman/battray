@@ -2,4 +2,5 @@
 .codex
 __pycache__
 /zig-out
+/zig-release
 /.zig-cache
