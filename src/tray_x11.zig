@@ -1,6 +1,7 @@
 const std = @import("std");
 const render = @import("render.zig");
 const config = @import("config.zig").config;
+const Painter = @import("painter_cairo.zig").Painter;
 pub const c = @import("x11.zig").c;
 
 const SYSTEM_TRAY_REQUEST_DOCK: c_long = 0;
@@ -71,7 +72,7 @@ pub const Tray = struct {
             2,
         );
 
-        const painter = try Painter.init(display, screen, window);
+        const painter = try Painter.init(display, screen, window, width, height);
         errdefer {
             var p = painter;
             p.deinit();
@@ -151,6 +152,7 @@ pub const Tray = struct {
                 if (new_width != self.width or new_height != self.height) {
                     self.width = new_width;
                     self.height = new_height;
+                    self.painter.resize(self.width, self.height);
                     self.redraw();
                 }
             },
@@ -193,41 +195,5 @@ const Atoms = struct {
             .system_tray_opcode = system_tray_opcode,
             .xembed_info = xembed_info,
         };
-    }
-};
-
-pub const Painter = struct {
-    display: *c.Display,
-    colormap: c.Colormap,
-    window: c.Window,
-    gc: c.GC,
-    colors: render.RGBColorSet,
-
-    pub fn init(display: *c.Display, screen: c_int, window: c.Window) !Painter {
-        const colormap = c.XDefaultColormap(display, screen);
-        const gc = c.XCreateGC(display, window, 0, null) orelse return error.XCreateGCFailed;
-        errdefer _ = c.XFreeGC(display, gc);
-
-        return .{
-            .display = display,
-            .colormap = colormap,
-            .window = window,
-            .gc = gc,
-            .colors = config.rgbColorSet(),
-        };
-    }
-
-    pub fn deinit(self: *Painter) void {
-        _ = c.XFreeGC(self.display, self.gc);
-    }
-
-    pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
-        _ = c.XSetForeground(self.display, self.gc, self.colors.get(color));
-        _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w - 1), @intCast(h - 1));
-    }
-
-    pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
-        _ = c.XSetForeground(self.display, self.gc, self.colors.get(color));
-        _ = c.XFillRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
     }
 };

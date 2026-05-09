@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     c_headers.linkSystemLibrary("X11", .{});
+    c_headers.linkSystemLibrary("cairo", .{});
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -25,6 +26,7 @@ pub fn build(b: *std.Build) void {
     });
 
     root_module.linkSystemLibrary("X11", .{});
+    root_module.linkSystemLibrary("cairo", .{});
 
     b.installArtifact(exe);
 
