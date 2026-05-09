@@ -2,10 +2,10 @@ const render = @import("render.zig");
 
 pub const Config = struct {
     colors: struct {
-        border: [:0]const u8 = "#aaaaaa",
-        good: [:0]const u8 = "#aaaaaa",
-        warn: [:0]const u8 = "#e0b43b",
-        crit: [:0]const u8 = "#d9534f",
+        border: u32 = 0xaaaaaa,
+        good: u32 = 0xaaaaaa,
+        warn: u32 = 0xe0b43b,
+        crit: u32 = 0xd9534f,
     } = .{},
     battery: render.Battery = .{
         .height = 0.55,
@@ -16,6 +16,15 @@ pub const Config = struct {
         .zoom = 0.85,
         .offset = 0,
     },
+
+    pub fn rgbColorSet(self: *const Config) render.RGBColorSet {
+        return .init(.{
+            .border=self.colors.border,
+            .crit=self.colors.crit,
+            .warn=self.colors.warn,
+            .good=self.colors.good,
+        });
+    }
 };
 
 pub const config: Config = .{};

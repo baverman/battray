@@ -1,9 +1,13 @@
+const std = @import("std");
+
 pub const Color = enum {
     border,
     crit,
     warn,
     good,
 };
+
+pub const RGBColorSet = std.enums.EnumArray(Color, u32);
 
 pub const Battery = struct {
     height: f32,

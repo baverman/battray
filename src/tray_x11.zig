@@ -7,14 +7,6 @@ const SYSTEM_TRAY_REQUEST_DOCK: c_long = 0;
 const XEMBED_VERSION: c_ulong = 0;
 const XEMBED_MAPPED: c_ulong = 1;
 
-fn allocColor(display: *c.Display, colormap: c.Colormap, name: [:0]const u8) !c_ulong {
-    var screen_def: c.XColor = undefined;
-    var exact_def: c.XColor = undefined;
-    if (c.XAllocNamedColor(display, colormap, name.ptr, &screen_def, &exact_def) == 0) {
-        return error.XAllocColorFailed;
-    }
-    return screen_def.pixel;
-}
 
 pub const Tray = struct {
     display: *c.Display,
@@ -209,11 +201,7 @@ pub const Painter = struct {
     colormap: c.Colormap,
     window: c.Window,
     gc: c.GC,
-
-    color_border: c_ulong,
-    color_good: c_ulong,
-    color_warn: c_ulong,
-    color_crit: c_ulong,
+    colors: render.RGBColorSet,
 
     pub fn init(display: *c.Display, screen: c_int, window: c.Window) !Painter {
         const colormap = c.XDefaultColormap(display, screen);
@@ -225,10 +213,7 @@ pub const Painter = struct {
             .colormap = colormap,
             .window = window,
             .gc = gc,
-            .color_border = try allocColor(display, colormap, config.colors.border),
-            .color_good = try allocColor(display, colormap, config.colors.good),
-            .color_warn = try allocColor(display, colormap, config.colors.warn),
-            .color_crit = try allocColor(display, colormap, config.colors.crit),
+            .colors = config.rgbColorSet(),
         };
     }
 
@@ -236,22 +221,13 @@ pub const Painter = struct {
         _ = c.XFreeGC(self.display, self.gc);
     }
 
-    pub fn getColor(self: *Painter, color: render.Color) c_ulong {
-        return switch (color) {
-            render.Color.border => self.color_border,
-            render.Color.good => self.color_good,
-            render.Color.warn => self.color_warn,
-            render.Color.crit => self.color_crit,
-        };
-    }
-
     pub fn drawRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
-        _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
+        _ = c.XSetForeground(self.display, self.gc, self.colors.get(color));
         _ = c.XDrawRectangle(self.display, self.window, self.gc, x, y, @intCast(w - 1), @intCast(h - 1));
     }
 
     pub fn drawFillRect(self: *Painter, x: i32, y: i32, w: i32, h: i32, color: render.Color) void {
-        _ = c.XSetForeground(self.display, self.gc, self.getColor(color));
+        _ = c.XSetForeground(self.display, self.gc, self.colors.get(color));
         _ = c.XFillRectangle(self.display, self.window, self.gc, x, y, @intCast(w), @intCast(h));
     }
 };
