@@ -32,9 +32,9 @@ pub const Layout = struct {
     fill: Rect,
 };
 
-pub fn drawBattery(painter: anytype, percent: u8, layout: Layout) void {
-    painter.drawRect(layout.body.x, layout.body.y, layout.body.w, layout.body.h, Color.border);
-    painter.drawFillRect(layout.nub.x, layout.nub.y, layout.nub.w, layout.nub.h, Color.border);
+pub fn drawBattery(painter: anytype, percent: u8, layout: Layout) !void {
+    try painter.drawRect(layout.body.x, layout.body.y, layout.body.w, layout.body.h, Color.border);
+    try painter.drawFillRect(layout.nub.x, layout.nub.y, layout.nub.w, layout.nub.h, Color.border);
 
     const clamped = @min(percent, 100);
     const fill_w: i32 = @divTrunc(layout.fill.w * clamped + 50, 100);
@@ -47,7 +47,7 @@ pub fn drawBattery(painter: anytype, percent: u8, layout: Layout) void {
         Color.good;
 
     if (fill_w > 0) {
-        painter.drawFillRect(layout.fill.x, layout.fill.y, fill_w, layout.fill.h, fill_color);
+        try painter.drawFillRect(layout.fill.x, layout.fill.y, fill_w, layout.fill.h, fill_color);
     }
 }
 

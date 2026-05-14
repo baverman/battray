@@ -3,14 +3,10 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const c_headers = b.addTranslateC(.{
-        .root_source_file = b.path("src/x11.h"),
+    const zix11_dep = b.dependency("zix11", .{
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
-    c_headers.linkSystemLibrary("X11", .{});
-    c_headers.linkSystemLibrary("cairo", .{});
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -18,15 +14,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    root_module.addImport("c", c_headers.createModule());
+    root_module.addImport("zix11", zix11_dep.module("zix11"));
 
     const exe = b.addExecutable(.{
         .name = "battray",
         .root_module = root_module,
     });
-
-    root_module.linkSystemLibrary("X11", .{});
-    root_module.linkSystemLibrary("cairo", .{});
 
     b.installArtifact(exe);
 

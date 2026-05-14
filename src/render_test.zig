@@ -116,7 +116,7 @@ test "Test 99% should still be full" {
     var out = [_]u8{0} ** 1000;
     var p = Painter.init();
 
-    drawBattery(&p, 99, calcLayout(battery, 22, 22));
+    try drawBattery(&p, 99, calcLayout(battery, 22, 22));
     const expected =
         \\......................
         \\......................
@@ -148,7 +148,7 @@ test "Test 10x10 render stays coherent" {
     var out = [_]u8{0} ** 1000;
     var p = Painter.init();
 
-    drawBattery(&p, 99, calcLayout(battery, 10, 10));
+    try drawBattery(&p, 99, calcLayout(battery, 10, 10));
     const expected =
         \\..........
         \\..........

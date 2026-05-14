@@ -1,0 +1,12 @@
+.{
+    .name = .battray,
+    .version = "0.16.0",
+    .dependencies = .{
+        .zix11 = .{
+            .url = "git+https://github.com/baverman/zix11.git#bd332f4ec2fb62b27b4ed76615e4e04faa94a535",
+            .hash = "zix11-0.0.0-6Ond5_bcBABFzPMpk16x9j--GxaLWGrXKclm_WdZmf9R",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xa8a800c90f96bb2f,
+}

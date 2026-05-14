@@ -1,163 +1,157 @@
 const std = @import("std");
+const zix11 = @import("zix11");
+const x = zix11.xproto;
+const Battery = @import("battery.zig").Battery;
 const render = @import("render.zig");
 const config = @import("config.zig").config;
-const Painter = @import("painter_cairo.zig").Painter;
-pub const c = @import("x11.zig").c;
+const X11Painter = @import("x11_painter.zig").X11Painter;
 
-const SYSTEM_TRAY_REQUEST_DOCK: c_long = 0;
-const XEMBED_VERSION: c_ulong = 0;
-const XEMBED_MAPPED: c_ulong = 1;
-
+const SYSTEM_TRAY_REQUEST_DOCK: u32 = 0;
+const XEMBED_VERSION: u32 = 0;
+const XEMBED_MAPPED: u32 = 1;
+const parent_relative: x.Pixmap = @enumFromInt(1);
+const refresh_interval_ms = 30 * std.time.ms_per_s;
 
 pub const Tray = struct {
-    display: *c.Display,
-    screen: c_int,
-    root: c.Window,
-    window: c.Window,
-    tray_owner: c.Window,
+    conn: zix11.Connection,
+    window: x.Window,
+    tray_owner: x.Window,
     atoms: Atoms,
-    painter: Painter,
+    gc: x.Gcontext,
     width: i32,
     height: i32,
     running: bool,
     percent: u8,
 
-    pub fn init(width: i32, height: i32) !Tray {
-        const display = c.XOpenDisplay(null) orelse return error.XOpenDisplayFailed;
-        errdefer _ = c.XCloseDisplay(display);
+    pub fn init(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        environ_map: *const std.process.Environ.Map,
+        width: i32,
+        height: i32,
+    ) !Tray {
+        var conn = try zix11.Connection.connectFromEnv(allocator, io, environ_map);
+        errdefer conn.deinit();
 
-        const screen = c.XDefaultScreen(display);
-        const root = c.XRootWindow(display, screen);
+        const atoms = try Atoms.init(&conn);
+        const owner_reply = try conn.request(x.GetSelectionOwner, .{
+            .selection = atoms.tray_selection,
+        });
+        if (@intFromEnum(owner_reply.owner) == 0) return error.SystemTrayUnavailable;
 
-        const atoms = try Atoms.init(display, screen);
-        const tray_owner = c.XGetSelectionOwner(display, atoms.tray_selection);
-        if (tray_owner == 0) return error.SystemTrayUnavailable;
+        const window = try conn.allocId(x.Window);
+        errdefer conn.request(x.DestroyWindow, .{ .window = window }) catch {};
+        const gc = try conn.allocId(x.Gcontext);
+        errdefer conn.request(x.FreeGC, .{ .gc = gc }) catch {};
 
-        var attrs: c.XSetWindowAttributes = std.mem.zeroInit(c.XSetWindowAttributes, .{});
-        attrs.background_pixmap = c.ParentRelative;
-        attrs.event_mask = c.ExposureMask | c.StructureNotifyMask;
-        attrs.override_redirect = c.True;
+        try conn.request(x.CreateWindow, .{
+            .depth = 0,
+            .wid = window,
+            .parent = conn.root_window,
+            .x = 0,
+            .y = 0,
+            .width = @intCast(width),
+            .height = @intCast(height),
+            .border_width = 0,
+            .class = .InputOutput,
+            .visual = 0,
+            .value_list = .{
+                .background_pixmap = parent_relative,
+                .event_mask = x.EventMask.of(&.{ .Exposure, .StructureNotify }),
+                .override_redirect = 1,
+            },
+        });
 
-        const depth = c.XDefaultDepth(display, screen);
-        const visual = c.XDefaultVisual(display, screen);
-        const window = c.XCreateWindow(
-            display,
-            root,
-            0,
-            0,
-            @intCast(width),
-            @intCast(height),
-            0,
-            depth,
-            c.InputOutput,
-            visual,
-            c.CWBackPixmap | c.CWEventMask | c.CWOverrideRedirect,
-            &attrs,
-        );
-        if (window == 0) return error.XCreateWindowFailed;
-        errdefer _ = c.XDestroyWindow(display, window);
+        try conn.request(x.CreateGC, .{
+            .cid = gc,
+            .drawable = @enumFromInt(@intFromEnum(window)),
+            .value_list = .{
+                .graphics_exposures = 0,
+            },
+        });
 
-        _ = c.XStoreName(display, window, "battray");
-        _ = c.XSelectInput(display, window, c.ExposureMask | c.StructureNotifyMask);
-
-        var xembed_info = [2]c_ulong{ XEMBED_VERSION, XEMBED_MAPPED };
-        _ = c.XChangeProperty(
-            display,
-            window,
-            atoms.xembed_info,
-            atoms.xembed_info,
-            32,
-            c.PropModeReplace,
-            @ptrCast(&xembed_info),
-            2,
-        );
-
-        const painter = try Painter.init(display, screen, window, width, height);
-        errdefer {
-            var p = painter;
-            p.deinit();
-        }
+        try setXembedInfo(&conn, window, atoms.xembed_info);
 
         var tray = Tray{
-            .display = display,
-            .screen = screen,
-            .root = root,
+            .conn = conn,
             .window = window,
-            .tray_owner = tray_owner,
+            .tray_owner = owner_reply.owner,
             .atoms = atoms,
-            .painter = painter,
+            .gc = gc,
             .width = width,
             .height = height,
             .running = true,
             .percent = 0,
         };
-
         try tray.dock();
         return tray;
     }
 
     pub fn deinit(self: *Tray) void {
-        self.painter.deinit();
-        _ = c.XDestroyWindow(self.display, self.window);
-        _ = c.XCloseDisplay(self.display);
+        self.conn.request(x.FreeGC, .{ .gc = self.gc }) catch {};
+        self.conn.request(x.DestroyWindow, .{ .window = self.window }) catch {};
+        self.conn.deinit();
     }
 
-    pub fn setLevel(self: *Tray, percent: u8) void {
+    pub fn setLevel(self: *Tray, percent: u8) !void {
         self.percent = @min(percent, 100);
-        self.redraw();
+        try self.redraw();
     }
 
-    pub fn processPending(self: *Tray) void {
-        while (c.XPending(self.display) > 0) {
-            var event: c.XEvent = undefined;
-            _ = c.XNextEvent(self.display, &event);
-            self.handleEvent(&event);
+    pub fn run(self: *Tray, allocator: std.mem.Allocator, io: std.Io) !void {
+        var battery = try Battery.init(allocator, io);
+        defer battery.deinit();
+
+        const initial_capacity = try battery.readCapacity(io);
+        try self.setLevel(initial_capacity);
+
+        var last_capacity = initial_capacity;
+        var next_refresh_ms = currentTimeMs(io) + refresh_interval_ms;
+
+        while (self.running) {
+            const now_ms = currentTimeMs(io);
+            if (now_ms >= next_refresh_ms) {
+                const capacity = battery.readCapacity(io) catch |err| {
+                    std.log.err("failed to read battery capacity: {}", .{err});
+                    next_refresh_ms = now_ms + refresh_interval_ms;
+                    continue;
+                };
+
+                if (capacity != last_capacity) {
+                    try self.setLevel(capacity);
+                    last_capacity = capacity;
+                }
+
+                next_refresh_ms = now_ms + refresh_interval_ms;
+            }
+
+            const remaining_ms = @max(next_refresh_ms - currentTimeMs(io), 0);
+            const timeout_ms: i32 = @intCast(remaining_ms);
+            if (try self.conn.pollEventTimeout(timeout_ms)) |event| {
+                try self.handleEvent(event);
+            }
         }
     }
 
-    pub fn connectionFd(self: *const Tray) std.posix.fd_t {
-        return c.XConnectionNumber(self.display);
-    }
-
-    fn dock(self: *Tray) !void {
-        var event: c.XEvent = undefined;
-        @memset(std.mem.asBytes(&event), 0);
-        event.xclient.type = c.ClientMessage;
-        event.xclient.serial = 0;
-        event.xclient.send_event = 1;
-        event.xclient.message_type = self.atoms.system_tray_opcode;
-        event.xclient.window = self.window;
-        event.xclient.format = 32;
-        event.xclient.data.l[0] = c.CurrentTime;
-        event.xclient.data.l[1] = SYSTEM_TRAY_REQUEST_DOCK;
-        event.xclient.data.l[2] = @intCast(self.window);
-        event.xclient.data.l[3] = 0;
-        event.xclient.data.l[4] = 0;
-
-        if (c.XSendEvent(self.display, self.tray_owner, 0, c.NoEventMask, &event) == 0) {
-            return error.XSendEventFailed;
-        }
-        _ = c.XMapWindow(self.display, self.window);
-        _ = c.XFlush(self.display);
-    }
-
-    fn handleEvent(self: *Tray, event: *c.XEvent) void {
-        switch (event.type) {
-            c.Expose => {
-                if (event.xexpose.count == 0) self.redraw();
+    pub fn handleEvent(self: *Tray, event: x.Event) !void {
+        switch (event) {
+            .Expose => |ev| {
+                if (ev.window == self.window and ev.count == 0) {
+                    try self.redraw();
+                }
             },
-            c.ConfigureNotify => {
-                const new_width = @max(event.xconfigure.width, 1);
-                const new_height = @max(event.xconfigure.height, 1);
+            .ConfigureNotify => |ev| {
+                if (ev.window != self.window) return;
+                const new_width = @max(@as(i32, ev.width), 1);
+                const new_height = @max(@as(i32, ev.height), 1);
                 if (new_width != self.width or new_height != self.height) {
                     self.width = new_width;
                     self.height = new_height;
-                    self.painter.resize(self.width, self.height);
-                    self.redraw();
+                    try self.redraw();
                 }
             },
-            c.DestroyNotify => {
-                if (event.xdestroywindow.window == self.window) {
+            .DestroyNotify => |ev| {
+                if (ev.window == self.window) {
                     self.running = false;
                 }
             },
@@ -165,35 +159,91 @@ pub const Tray = struct {
         }
     }
 
-    fn redraw(self: *Tray) void {
-        _ = c.XClearWindow(self.display, self.window);
+    fn dock(self: *Tray) !void {
+        try self.conn.request(x.SendEvent, .{
+            .propagate = false,
+            .destination = self.tray_owner,
+            .event_mask = 0,
+            .event = clientMessagePacket(
+                self.window,
+                self.atoms.system_tray_opcode,
+                32,
+                .{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intCast(@intFromEnum(self.window)), 0, 0 },
+            ),
+        });
+        try self.conn.request(x.MapWindow, .{ .window = self.window });
+    }
+
+    fn redraw(self: *Tray) !void {
+        try self.conn.request(x.ClearArea, .{
+            .exposures = false,
+            .window = self.window,
+            .x = 0,
+            .y = 0,
+            .width = @intCast(self.width),
+            .height = @intCast(self.height),
+        });
         const layout = render.calcLayout(config.battery, self.width, self.height);
-        render.drawBattery(&self.painter, self.percent, layout);
-        _ = c.XFlush(self.display);
+        var painter = X11Painter.init(&self.conn, self.window, self.gc);
+        try render.drawBattery(&painter, self.percent, layout);
     }
 };
 
 const Atoms = struct {
-    tray_selection: c.Atom,
-    system_tray_opcode: c.Atom,
-    xembed_info: c.Atom,
+    tray_selection: x.Atom,
+    system_tray_opcode: x.Atom,
+    xembed_info: x.Atom,
 
-    fn init(display: *c.Display, screen: c_int) !Atoms {
-        var selection_name_buf: [32]u8 = undefined;
-        const selection_name = try std.fmt.bufPrintZ(&selection_name_buf, "_NET_SYSTEM_TRAY_S{}", .{screen});
-
-        const tray_selection = c.XInternAtom(display, selection_name.ptr, c.False);
-        const system_tray_opcode = c.XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", c.False);
-        const xembed_info = c.XInternAtom(display, "_XEMBED_INFO", c.False);
-
-        if (tray_selection == 0 or system_tray_opcode == 0 or xembed_info == 0) {
-            return error.XInternAtomFailed;
-        }
-
+    fn init(conn: *zix11.Connection) !Atoms {
         return .{
-            .tray_selection = tray_selection,
-            .system_tray_opcode = system_tray_opcode,
-            .xembed_info = xembed_info,
+            .tray_selection = try internAtom(conn, "_NET_SYSTEM_TRAY_S0"),
+            .system_tray_opcode = try internAtom(conn, "_NET_SYSTEM_TRAY_OPCODE"),
+            .xembed_info = try internAtom(conn, "_XEMBED_INFO"),
         };
     }
 };
+
+fn internAtom(conn: *zix11.Connection, name: []const u8) !x.Atom {
+    const reply = try conn.request(x.InternAtom, .{
+        .only_if_exists = false,
+        .name = name,
+    });
+    return reply.atom;
+}
+
+fn setXembedInfo(conn: *zix11.Connection, window: x.Window, xembed_info: x.Atom) !void {
+    var data: [8]u8 = undefined;
+    std.mem.writeInt(u32, data[0..4], XEMBED_VERSION, .little);
+    std.mem.writeInt(u32, data[4..8], XEMBED_MAPPED, .little);
+    try conn.request(x.ChangeProperty, .{
+        .mode = .Replace,
+        .window = window,
+        .property = xembed_info,
+        .type = xembed_info,
+        .format = 32,
+        .data_len = 2,
+        .data = data[0..],
+    });
+}
+
+fn currentTimeMs(io: std.Io) i64 {
+    return std.Io.Clock.real.now(io).toMilliseconds();
+}
+
+// RRR: WTF?
+fn clientMessagePacket(
+    window: x.Window,
+    message_type: x.Atom,
+    format: u8,
+    data: [5]u32,
+) [32]u8 {
+    var packet: [32]u8 = std.mem.zeroes([32]u8);
+    packet[0] = 33;
+    packet[1] = format;
+    std.mem.writeInt(u32, packet[4..8], @intFromEnum(window), .little);
+    std.mem.writeInt(u32, packet[8..12], @intFromEnum(message_type), .little);
+    inline for (0..5) |i| {
+        std.mem.writeInt(u32, packet[12 + i * 4 .. 16 + i * 4], data[i], .little);
+    }
+    return packet;
+}
