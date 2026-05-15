@@ -10,9 +10,10 @@ const SYSTEM_TRAY_REQUEST_DOCK: u32 = 0;
 const XEMBED_VERSION: u32 = 0;
 const XEMBED_MAPPED: u32 = 1;
 const parent_relative: x.Pixmap = @enumFromInt(1);
-const refresh_interval_ms = 30 * std.time.ms_per_s;
 
 pub const Tray = struct {
+    allocator: std.mem.Allocator,
+    io: std.Io,
     conn: zix11.Connection,
     window: x.Window,
     tray_owner: x.Window,
@@ -40,10 +41,6 @@ pub const Tray = struct {
         if (@intFromEnum(owner_reply.owner) == 0) return error.SystemTrayUnavailable;
 
         const window = try conn.allocId(x.Window);
-        errdefer conn.request(x.DestroyWindow, .{ .window = window }) catch {};
-        const gc = try conn.allocId(x.Gcontext);
-        errdefer conn.request(x.FreeGC, .{ .gc = gc }) catch {};
-
         try conn.request(x.CreateWindow, .{
             .depth = 0,
             .wid = window,
@@ -61,18 +58,23 @@ pub const Tray = struct {
                 .override_redirect = 1,
             },
         });
+        errdefer conn.request(x.DestroyWindow, .{ .window = window }) catch {};
 
+        const gc = try conn.allocId(x.Gcontext);
         try conn.request(x.CreateGC, .{
             .cid = gc,
-            .drawable = @enumFromInt(@intFromEnum(window)),
+            .drawable = .{ .window = window },
             .value_list = .{
                 .graphics_exposures = 0,
             },
         });
+        errdefer conn.request(x.FreeGC, .{ .gc = gc }) catch {};
 
         try setXembedInfo(&conn, window, atoms.xembed_info);
 
         var tray = Tray{
+            .allocator = allocator,
+            .io = io,
             .conn = conn,
             .window = window,
             .tray_owner = owner_reply.owner,
@@ -98,22 +100,21 @@ pub const Tray = struct {
         try self.redraw();
     }
 
-    pub fn run(self: *Tray, allocator: std.mem.Allocator, io: std.Io) !void {
-        var battery = try Battery.init(allocator, io);
+    pub fn run(self: *Tray) !void {
+        var battery = try Battery.init(self.allocator, self.io);
         defer battery.deinit();
 
-        const initial_capacity = try battery.readCapacity(io);
+        const initial_capacity = try battery.readCapacity(self.io);
         try self.setLevel(initial_capacity);
 
         var last_capacity = initial_capacity;
-        var next_refresh_ms = currentTimeMs(io) + refresh_interval_ms;
 
         while (self.running) {
-            const now_ms = currentTimeMs(io);
-            if (now_ms >= next_refresh_ms) {
-                const capacity = battery.readCapacity(io) catch |err| {
+            if (try self.conn.pollEventTimeout(30000)) |event| {
+                try self.handleEvent(event);
+            } else {
+                const capacity = battery.readCapacity(self.io) catch |err| {
                     std.log.err("failed to read battery capacity: {}", .{err});
-                    next_refresh_ms = now_ms + refresh_interval_ms;
                     continue;
                 };
 
@@ -121,14 +122,6 @@ pub const Tray = struct {
                     try self.setLevel(capacity);
                     last_capacity = capacity;
                 }
-
-                next_refresh_ms = now_ms + refresh_interval_ms;
-            }
-
-            const remaining_ms = @max(next_refresh_ms - currentTimeMs(io), 0);
-            const timeout_ms: i32 = @intCast(remaining_ms);
-            if (try self.conn.pollEventTimeout(timeout_ms)) |event| {
-                try self.handleEvent(event);
             }
         }
     }
@@ -160,16 +153,17 @@ pub const Tray = struct {
     }
 
     fn dock(self: *Tray) !void {
+        const event: x.ClientMessageEvent = .{
+            .window = self.window,
+            .type = self.atoms.system_tray_opcode,
+            .format = 32,
+            .data = zix11.clientMessageData(u32, &.{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intFromEnum(self.window) }),
+        };
         try self.conn.request(x.SendEvent, .{
             .propagate = false,
             .destination = self.tray_owner,
             .event_mask = 0,
-            .event = clientMessagePacket(
-                self.window,
-                self.atoms.system_tray_opcode,
-                32,
-                .{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intCast(@intFromEnum(self.window)), 0, 0 },
-            ),
+            .event = try event.toBytes(),
         });
         try self.conn.request(x.MapWindow, .{ .window = self.window });
     }
@@ -228,22 +222,4 @@ fn setXembedInfo(conn: *zix11.Connection, window: x.Window, xembed_info: x.Atom)
 
 fn currentTimeMs(io: std.Io) i64 {
     return std.Io.Clock.real.now(io).toMilliseconds();
-}
-
-// RRR: WTF?
-fn clientMessagePacket(
-    window: x.Window,
-    message_type: x.Atom,
-    format: u8,
-    data: [5]u32,
-) [32]u8 {
-    var packet: [32]u8 = std.mem.zeroes([32]u8);
-    packet[0] = 33;
-    packet[1] = format;
-    std.mem.writeInt(u32, packet[4..8], @intFromEnum(window), .little);
-    std.mem.writeInt(u32, packet[8..12], @intFromEnum(message_type), .little);
-    inline for (0..5) |i| {
-        std.mem.writeInt(u32, packet[12 + i * 4 .. 16 + i * 4], data[i], .little);
-    }
-    return packet;
 }

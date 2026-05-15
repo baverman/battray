@@ -1,4 +1,5 @@
 # battray
+
 X11 tray icon to display battery charge level
 
 ![battray screenshot](images/screenshot.png)
@@ -16,8 +17,7 @@ the tray icon periodically.
 
 Requirements:
 
-- Zig
-- X11 development files (`libX11`)
+- Zig (>=0.16)
 
 Build with:
 

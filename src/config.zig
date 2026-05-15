@@ -19,10 +19,10 @@ pub const Config = struct {
 
     pub fn rgbColorSet(self: *const Config) render.RGBColorSet {
         return .init(.{
-            .border=self.colors.border,
-            .crit=self.colors.crit,
-            .warn=self.colors.warn,
-            .good=self.colors.good,
+            .border = self.colors.border,
+            .crit = self.colors.crit,
+            .warn = self.colors.warn,
+            .good = self.colors.good,
         });
     }
 };

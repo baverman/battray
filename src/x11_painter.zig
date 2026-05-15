@@ -28,7 +28,7 @@ pub const X11Painter = struct {
             .{ .x = @intCast(x0 + w - 1), .y = @intCast(y0), .width = 1, .height = @intCast(h) },
         };
         try self.conn.request(x.PolyFillRectangle, .{
-            .drawable = @enumFromInt(@intFromEnum(self.window)),
+            .drawable = .{ .window = self.window },
             .gc = self.gc,
             .rectangles = rects[0..],
         });
@@ -44,7 +44,7 @@ pub const X11Painter = struct {
             .height = @intCast(h),
         }};
         try self.conn.request(x.PolyFillRectangle, .{
-            .drawable = @enumFromInt(@intFromEnum(self.window)),
+            .drawable = .{ .window = self.window },
             .gc = self.gc,
             .rectangles = rects[0..],
         });
