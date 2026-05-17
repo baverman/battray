@@ -17,7 +17,7 @@ pub const Tray = struct {
     conn: zix11.Connection,
     window: x.Window,
     tray_owner: x.Window,
-    atoms: Atoms,
+    atoms: Atoms.Struct,
     gc: x.Gcontext,
     width: i32,
     height: i32,
@@ -34,57 +34,21 @@ pub const Tray = struct {
         var conn = try zix11.Connection.connectFromEnv(allocator, io, environ_map);
         errdefer conn.deinit();
 
-        const atoms = try Atoms.init(&conn);
-        const owner_reply = try conn.request(x.GetSelectionOwner, .{
-            .selection = atoms.tray_selection,
-        });
-        if (@intFromEnum(owner_reply.owner) == 0) return error.SystemTrayUnavailable;
-
-        const window = try conn.allocId(x.Window);
-        try conn.request(x.CreateWindow, .{
-            .depth = 0,
-            .wid = window,
-            .parent = conn.root_window,
-            .x = 0,
-            .y = 0,
-            .width = @intCast(width),
-            .height = @intCast(height),
-            .border_width = 0,
-            .class = .InputOutput,
-            .visual = 0,
-            .value_list = .{
-                .background_pixmap = parent_relative,
-                .event_mask = x.EventMask.of(&.{ .Exposure, .StructureNotify }),
-                .override_redirect = 1,
-            },
-        });
-        errdefer conn.request(x.DestroyWindow, .{ .window = window }) catch {};
-
-        const gc = try conn.allocId(x.Gcontext);
-        try conn.request(x.CreateGC, .{
-            .cid = gc,
-            .drawable = .{ .window = window },
-            .value_list = .{
-                .graphics_exposures = 0,
-            },
-        });
-        errdefer conn.request(x.FreeGC, .{ .gc = gc }) catch {};
-
-        try setXembedInfo(&conn, window, atoms.xembed_info);
-
         var tray = Tray{
             .allocator = allocator,
             .io = io,
             .conn = conn,
-            .window = window,
-            .tray_owner = owner_reply.owner,
-            .atoms = atoms,
-            .gc = gc,
+            .window = undefined,
+            .tray_owner = undefined,
+            .atoms = try Atoms.Enum.init(&conn),
+            .gc = undefined,
             .width = width,
             .height = height,
             .running = true,
             .percent = 0,
         };
+
+        try tray.createWindow();
         try tray.dock();
         return tray;
     }
@@ -152,10 +116,56 @@ pub const Tray = struct {
         }
     }
 
+    fn createWindow(self: *Tray) !void {
+        const owner_reply = try self.conn.request(x.GetSelectionOwner, .{
+            .selection = self.atoms._NET_SYSTEM_TRAY_S0,
+        });
+        if (owner_reply.owner == x.Window.None) return error.SystemTrayUnavailable;
+        self.tray_owner = owner_reply.owner;
+
+        self.window = try self.conn.allocId(x.Window);
+        try self.conn.request(x.CreateWindow, .{
+            .depth = 0,
+            .wid = self.window,
+            .parent = self.conn.root_window,
+            .x = 0,
+            .y = 0,
+            .width = @intCast(self.width),
+            .height = @intCast(self.height),
+            .border_width = 0,
+            .class = .InputOutput,
+            .visual = 0,
+            .value_list = .{
+                .background_pixmap = parent_relative,
+                .event_mask = x.EventMask.of(&.{ .Exposure, .StructureNotify }),
+                .override_redirect = 1,
+            },
+        });
+        errdefer self.conn.request(x.DestroyWindow, .{ .window = self.window }) catch {};
+
+        self.gc = try self.conn.allocId(x.Gcontext);
+        try self.conn.request(x.CreateGC, .{
+            .cid = self.gc,
+            .drawable = .{ .window = self.window },
+            .value_list = .{
+                .graphics_exposures = 0,
+            },
+        });
+        errdefer self.conn.request(x.FreeGC, .{ .gc = self.gc }) catch {};
+
+        try zix11.setProperty(
+            &self.conn,
+            self.window,
+            self.atoms._XEMBED_INFO,
+            zix11.PropertyType.cardinal.as(self.atoms._XEMBED_INFO),
+            &.{ XEMBED_VERSION, XEMBED_MAPPED },
+        );
+    }
+
     fn dock(self: *Tray) !void {
         const event: x.ClientMessageEvent = .{
             .window = self.window,
-            .type = self.atoms.system_tray_opcode,
+            .type = self.atoms._NET_SYSTEM_TRAY_OPCODE,
             .format = 32,
             .data = zix11.clientMessageData(u32, &.{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intFromEnum(self.window) }),
         };
@@ -183,42 +193,14 @@ pub const Tray = struct {
     }
 };
 
-const Atoms = struct {
-    tray_selection: x.Atom,
-    system_tray_opcode: x.Atom,
-    xembed_info: x.Atom,
+const Atoms = enum {
+    const Enum = zix11.AtomEnum(@This());
+    const Struct = Enum.Struct;
 
-    fn init(conn: *zix11.Connection) !Atoms {
-        return .{
-            .tray_selection = try internAtom(conn, "_NET_SYSTEM_TRAY_S0"),
-            .system_tray_opcode = try internAtom(conn, "_NET_SYSTEM_TRAY_OPCODE"),
-            .xembed_info = try internAtom(conn, "_XEMBED_INFO"),
-        };
-    }
+    _NET_SYSTEM_TRAY_S0,
+    _NET_SYSTEM_TRAY_OPCODE,
+    _XEMBED_INFO,
 };
-
-fn internAtom(conn: *zix11.Connection, name: []const u8) !x.Atom {
-    const reply = try conn.request(x.InternAtom, .{
-        .only_if_exists = false,
-        .name = name,
-    });
-    return reply.atom;
-}
-
-fn setXembedInfo(conn: *zix11.Connection, window: x.Window, xembed_info: x.Atom) !void {
-    var data: [8]u8 = undefined;
-    std.mem.writeInt(u32, data[0..4], XEMBED_VERSION, .little);
-    std.mem.writeInt(u32, data[4..8], XEMBED_MAPPED, .little);
-    try conn.request(x.ChangeProperty, .{
-        .mode = .Replace,
-        .window = window,
-        .property = xembed_info,
-        .type = xembed_info,
-        .format = 32,
-        .data_len = 2,
-        .data = data[0..],
-    });
-}
 
 fn currentTimeMs(io: std.Io) i64 {
     return std.Io.Clock.real.now(io).toMilliseconds();

@@ -3,8 +3,8 @@
     .version = "0.16.0",
     .dependencies = .{
         .zix11 = .{
-            .url = "git+https://github.com/baverman/zix11.git#64719166956bb645ca8460ebdc6c1563a33ba9b9",
-            .hash = "zix11-0.0.0-6Ond5-s_BQAJrZlWCCqJW8EhfptPyWJRXzJorW5KokrE",
+            .url = "git+https://github.com/baverman/zix11.git#86f1b06715901143f6400c88659948501a7f8f4d",
+            .hash = "zix11-0.0.0-6Ond50iaBQDkgqxmConloAXN6QL33I9fIWre6WuwrVlY",
         },
     },
     .paths = .{""},

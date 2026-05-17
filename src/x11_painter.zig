@@ -21,7 +21,7 @@ pub const X11Painter = struct {
     pub fn drawRect(self: *X11Painter, x0: i32, y0: i32, w: i32, h: i32, color: render.Color) !void {
         if (w <= 0 or h <= 0) return;
         try self.setForeground(color);
-        var rects = [_]x.RECTANGLE{
+        const rects = [_]x.RECTANGLE{
             .{ .x = @intCast(x0), .y = @intCast(y0), .width = @intCast(w), .height = 1 },
             .{ .x = @intCast(x0), .y = @intCast(y0 + h - 1), .width = @intCast(w), .height = 1 },
             .{ .x = @intCast(x0), .y = @intCast(y0), .width = 1, .height = @intCast(h) },
@@ -30,14 +30,14 @@ pub const X11Painter = struct {
         try self.conn.request(x.PolyFillRectangle, .{
             .drawable = .{ .window = self.window },
             .gc = self.gc,
-            .rectangles = rects[0..],
+            .rectangles = &rects,
         });
     }
 
     pub fn drawFillRect(self: *X11Painter, x0: i32, y0: i32, w: i32, h: i32, color: render.Color) !void {
         if (w <= 0 or h <= 0) return;
         try self.setForeground(color);
-        var rects = [_]x.RECTANGLE{.{
+        const rects = [_]x.RECTANGLE{.{
             .x = @intCast(x0),
             .y = @intCast(y0),
             .width = @intCast(w),
@@ -46,7 +46,7 @@ pub const X11Painter = struct {
         try self.conn.request(x.PolyFillRectangle, .{
             .drawable = .{ .window = self.window },
             .gc = self.gc,
-            .rectangles = rects[0..],
+            .rectangles = &rects,
         });
     }
 
