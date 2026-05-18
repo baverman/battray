@@ -17,7 +17,7 @@ pub const Tray = struct {
     conn: zix11.Connection,
     window: x.Window,
     tray_owner: x.Window,
-    atoms: Atoms.Struct,
+    atoms: Atoms,
     gc: x.Gcontext,
     width: i32,
     height: i32,
@@ -40,7 +40,7 @@ pub const Tray = struct {
             .conn = conn,
             .window = undefined,
             .tray_owner = undefined,
-            .atoms = try Atoms.Enum.init(&conn),
+            .atoms = try zix11.initAtoms(Atoms, &conn),
             .gc = undefined,
             .width = width,
             .height = height,
@@ -193,14 +193,11 @@ pub const Tray = struct {
     }
 };
 
-const Atoms = enum {
-    const Enum = zix11.AtomEnum(@This());
-    const Struct = Enum.Struct;
-
+const Atoms = zix11.AtomStruct(enum {
     _NET_SYSTEM_TRAY_S0,
     _NET_SYSTEM_TRAY_OPCODE,
     _XEMBED_INFO,
-};
+});
 
 fn currentTimeMs(io: std.Io) i64 {
     return std.Io.Clock.real.now(io).toMilliseconds();
