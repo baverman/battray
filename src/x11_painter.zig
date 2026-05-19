@@ -1,5 +1,5 @@
 const zix11 = @import("zix11");
-const x = zix11.xproto;
+const x = zix11.x;
 const render = @import("render.zig");
 const config = @import("config.zig").config;
 

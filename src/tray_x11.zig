@@ -1,6 +1,6 @@
 const std = @import("std");
 const zix11 = @import("zix11");
-const x = zix11.xproto;
+const x = zix11.x;
 const Battery = @import("battery.zig").Battery;
 const render = @import("render.zig");
 const config = @import("config.zig").config;
@@ -40,7 +40,7 @@ pub const Tray = struct {
             .conn = conn,
             .window = undefined,
             .tray_owner = undefined,
-            .atoms = try zix11.initAtoms(Atoms, &conn),
+            .atoms = try zix11.atoms.getAll(Atoms, &conn),
             .gc = undefined,
             .width = width,
             .height = height,
@@ -153,12 +153,12 @@ pub const Tray = struct {
         });
         errdefer self.conn.request(x.FreeGC, .{ .gc = self.gc }) catch {};
 
-        try zix11.setProperty(
+        try zix11.properties.setAs(
             &self.conn,
             self.window,
             self.atoms._XEMBED_INFO,
-            zix11.PropertyType.cardinal.as(self.atoms._XEMBED_INFO),
-            &.{ XEMBED_VERSION, XEMBED_MAPPED },
+            self.atoms._XEMBED_INFO,
+            &[_]u32{ XEMBED_VERSION, XEMBED_MAPPED },
         );
     }
 
@@ -167,7 +167,7 @@ pub const Tray = struct {
             .window = self.window,
             .type = self.atoms._NET_SYSTEM_TRAY_OPCODE,
             .format = 32,
-            .data = zix11.clientMessageData(u32, &.{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intFromEnum(self.window) }),
+            .data = zix11.events.clientMessageData(u32, &.{ 0, SYSTEM_TRAY_REQUEST_DOCK, @intFromEnum(self.window) }),
         };
         try self.conn.request(x.SendEvent, .{
             .propagate = false,
@@ -193,7 +193,7 @@ pub const Tray = struct {
     }
 };
 
-const Atoms = zix11.AtomStruct(enum {
+const Atoms = zix11.atoms.AtomStruct(enum {
     _NET_SYSTEM_TRAY_S0,
     _NET_SYSTEM_TRAY_OPCODE,
     _XEMBED_INFO,
