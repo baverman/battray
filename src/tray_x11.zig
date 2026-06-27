@@ -1,6 +1,8 @@
 const std = @import("std");
 const zix11 = @import("zix11");
 const x = zix11.x;
+
+const move = @import("util.zig").move;
 const Battery = @import("battery.zig").Battery;
 const render = @import("render.zig");
 const config = @import("config.zig").config;
@@ -31,22 +33,28 @@ pub const Tray = struct {
         width: i32,
         height: i32,
     ) !Tray {
-        var conn = try zix11.Connection.connectFromEnv(allocator, io, environ_map);
-        errdefer conn.deinit();
+        var conn = try zix11.Connection.init(allocator, io);
+        conn.connectFromEnv(environ_map) catch |err| {
+            conn.deinit();
+            return err;
+        };
 
-        var tray = Tray{
+        var tray: Tray = .{
             .allocator = allocator,
             .io = io,
-            .conn = conn,
+            .conn = move(&conn),
             .window = undefined,
             .tray_owner = undefined,
-            .atoms = try zix11.atoms.getAll(Atoms, &conn),
+            .atoms = undefined,
             .gc = undefined,
             .width = width,
             .height = height,
             .running = true,
             .percent = 0,
         };
+
+        errdefer tray.conn.deinit();
+        tray.atoms = try zix11.atoms.getAll(Atoms, &tray.conn);
 
         try tray.createWindow();
         try tray.dock();
@@ -90,7 +98,7 @@ pub const Tray = struct {
         }
     }
 
-    pub fn handleEvent(self: *Tray, event: x.Event) !void {
+    pub fn handleEvent(self: *Tray, event: zix11.events.Event) !void {
         switch (event) {
             .Expose => |ev| {
                 if (ev.window == self.window and ev.count == 0) {
@@ -127,7 +135,7 @@ pub const Tray = struct {
         try self.conn.request(x.CreateWindow, .{
             .depth = 0,
             .wid = self.window,
-            .parent = self.conn.root_window,
+            .parent = self.conn.rootWindow(),
             .x = 0,
             .y = 0,
             .width = @intCast(self.width),
